@@ -1,0 +1,466 @@
+---
+title: "BigMart Sales project"
+author: "Alex Kiiru"
+date: "12/20/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## PROBLEM STATEMENT
+The data scientists at BigMart have collected 2013 sales data for 1559 products across 10 stores in different cities. Also, certain attributes of each product and store have been defined. 
+The aim is to build a predictive model and find out the sales of each product at a particular store.Using this model, BigMart will try to understand the properties of products and stores which play a key role in increasing sales.
+############# MY SOLUTION  #####################################
+#####################################################################
+
+## PROBLEM DEFINITION AND MAPPING
+## Hypothesis Generation
+ 1.Sales are higher during the weekend
+ 2.Store size affects the sales
+ 3.Items with more shelf space sell more
+ 4.High sales occur at the end of the year(xmas)
+ 5.High sales in the evening 
+
+## Data Exploration Analysis
+
+```{r}
+## load packages
+library(data.table) 
+library(dplyr)      
+library(ggplot2)     
+library(caret)      
+library(corrplot)  
+library(xgboost)   
+library(cowplot)     
+
+```
+
+## Read data sets 
+
+You can also embed plots, for example:
+
+```{r }
+train = fread("Train_UWu5bXk.csv")
+test = fread("Test_u94Q5KV.csv")
+submission = fread("SampleSubmission_TmnO39y.csv")
+```
+#data sctructure 
+```{r }
+## column names
+names(train)
+
+## column names
+names(test)
+
+## structure of train data
+str(train)
+
+## structure of the data
+str(test)
+
+```
+##combinig the two data sets 
+```{r }
+test[,Item_Outlet_Sales := NA] ## add Item_Outlet_Sales to test data
+
+combined = rbind(train, test) # merging train and test datasets
+
+dim(combined)
+
+```
+## UNIVARIATE DATA ANALYSIS
+since our target variable is continuous,I plotted a histogram to visualize will be able to show us how skewed our data is.
+```{r }
+##Univariate plots 
+ggplot(train) + geom_histogram(aes(train$Item_Outlet_Sales), binwidth = 100, fill = "blue") +
+  xlab("Item_Outlet_Sales")
+```
+Since its right skewed i decided to transform the data to treat its skewness.
+## checking the distribution of indepedent variables
+```{r }
+plot1 = ggplot(combined) + geom_histogram(aes(Item_Weight), binwidth = 0.5, fill = "red")
+
+plot2 = ggplot(combined) + geom_histogram(aes(Item_Visibility), binwidth = 0.005, fill = "red")
+
+plot3 = ggplot(combined) + geom_histogram(aes(Item_MRP), binwidth = 1, fill = "red")
+
+plot_grid(plot1, plot2, plot3, nrow = 1)
+
+```
+There is no clear pattern for item_weight and item_MRP.But item_visibility is right skewed and its the variable that needs transformation
+##variable transformation
+```{r }
+#Item Fat Content
+ggplot(combined %>% group_by(Item_Fat_Content) %>% summarise(Count = n())) + 
+  geom_bar(aes(Item_Fat_Content, Count), stat = "identity", fill = "coral1")
+
+combined$Item_Fat_Content[combined$Item_Fat_Content == "LF"] = "Low Fat"
+combined$Item_Fat_Content[combined$Item_Fat_Content == "low fat"] = "Low Fat"
+combined$Item_Fat_Content[combined$Item_Fat_Content == "reg"] = "Regular"
+
+ggplot(combined %>% group_by(Item_Fat_Content) %>% summarise(Count = n())) + 
+  geom_bar(aes(Item_Fat_Content, Count), stat = "identity", fill = "coral1")
+
+```
+# plot for Item_Type
+```{r }
+plot4 = ggplot(combined %>% group_by(Item_Type) %>% summarise(Count = n())) + 
+  geom_bar(aes(Item_Type, Count), stat = "identity", fill = "coral1") +
+  xlab("") +
+  geom_label(aes(Item_Type, Count, label = Count), vjust = 0.5) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  ggtitle("Item_Type")
+
+plot4
+```
+# plot for Outlet_Identifier
+```{r }
+plot5 = ggplot(combined %>% group_by(Outlet_Identifier) %>% summarise(Count = n())) + 
+  geom_bar(aes(Outlet_Identifier, Count), stat = "identity", fill = "coral1") +
+  geom_label(aes(Outlet_Identifier, Count, label = Count), vjust = 0.5) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+plot5
+
+```
+# plot for Outlet_Size
+```{r }
+# plot for Outlet_Size
+plot6 = ggplot(combined %>% group_by(Outlet_Size) %>% summarise(Count = n())) + 
+  geom_bar(aes(Outlet_Size, Count), stat = "identity", fill = "coral1") +
+  geom_label(aes(Outlet_Size, Count, label = Count), vjust = 0.5) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+plot6
+
+```
+```{r }
+second_row = plot_grid(plot5, plot6, nrow = 1)
+second_row
+plot_grid(plot4, second_row, ncol = 1)
+```
+# plot for Outlet_Establishment_Year
+```{r }
+# plot for Outlet_Establishment_Year
+plot7 = ggplot(combined %>% group_by(Outlet_Establishment_Year) %>% summarise(Count = n())) + 
+  geom_bar(aes(factor(Outlet_Establishment_Year), Count), stat = "identity", fill = "coral1") +
+  geom_label(aes(factor(Outlet_Establishment_Year), Count, label = Count), vjust = 0.5) +
+  xlab("Outlet_Establishment_Year") +
+  theme(axis.text.x = element_text(size = 8.5))
+
+plot7
+
+```
+# plot for Outlet_Type
+```{r }
+# plot for Outlet_Type
+plot8 = ggplot(combined %>% group_by(Outlet_Type) %>% summarise(Count = n())) + 
+  geom_bar(aes(Outlet_Type, Count), stat = "identity", fill = "coral1") +
+  geom_label(aes(factor(Outlet_Type), Count, label = Count), vjust = 0.5) +
+  theme(axis.text.x = element_text(size = 8.5))
+
+plot8
+
+```
+# ploting both plots together
+```{r }
+plot_grid(plot7, plot8, ncol = 2)
+```
+##BIVARIATE DATA ANALYSIS
+# Item_Weight vs Item_Outlet_Sales
+```{r }
+train = combined[1:nrow(train)]
+
+# Item_Weight vs Item_Outlet_Sales
+plot9 = ggplot(train) + geom_point(aes(Item_Weight, Item_Outlet_Sales), colour = "gold4", alpha = 0.2) +
+  theme(axis.title = element_text(size = 8.5))
+
+plot9
+```
+##Item_Visibility vs Item_Outlet_Sales
+```{r }
+# Item_Visibility vs Item_Outlet_Sales
+plot10 = ggplot(train) + geom_point(aes(Item_Visibility, Item_Outlet_Sales), colour = "gold4", alpha = 0.3) +
+  theme(axis.title = element_text(size = 8.5))
+
+plot10
+
+```
+##Item_MRP vs Item_Outlet_Sales
+```{r }
+# Item_MRP vs Item_Outlet_Sales
+plot11 = ggplot(train) + geom_point(aes(Item_MRP, Item_Outlet_Sales), colour = "gold4", alpha = 0.3) +
+  theme(axis.title = element_text(size = 8.5))
+
+plot11
+```
+```{r }
+second_row_2 = plot_grid(plot10, plot11, ncol = 2)
+
+plot_grid(plot9, second_row_2, nrow = 2)
+
+```
+##Item_Type vs Item_Outlet_Sales
+```{r }
+# Item_Type vs Item_Outlet_Sales
+plot12 = ggplot(train) + geom_boxplot(aes(Item_Type, Item_Outlet_Sales), fill = "maroon4") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.text = element_text(size = 5),
+        axis.title = element_text(size = 9.5))
+plot12
+
+```
+##Item_Fat_Content vs Item_Outlet_Sales
+```{r }
+# Item_Fat_Content vs Item_Outlet_Sales
+plot13 = ggplot(train) + geom_violin(aes(Item_Fat_Content, Item_Outlet_Sales), fill = "maroon4") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.text = element_text(size = 9.5),
+        axis.title = element_text(size = 9.5))
+plot13
+
+```
+##Outlet_Identifier vs Item_Outlet_Sales
+```{r }
+# Outlet_Identifier vs Item_Outlet_Sales
+plot14 = ggplot(train) + geom_violin(aes(Outlet_Identifier, Item_Outlet_Sales), fill = "maroon4") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.text = element_text(size = 9),
+        axis.title = element_text(size = 9.5))
+plot14
+```
+#merging the plots
+```{r }
+second_row_3 = plot_grid(plot13, plot14, ncol = 2)
+
+plot_grid(plot12, second_row_3, ncol = 1)
+```
+```{r }
+ggplot(train) + geom_violin(aes(Outlet_Size, Item_Outlet_Sales), fill = "maroon4")
+
+plot15 = ggplot(train) + geom_violin(aes(Outlet_Location_Type, Item_Outlet_Sales), fill = "maroon4")
+
+plot16 = ggplot(train) + geom_violin(aes(Outlet_Type, Item_Outlet_Sales), fill = "maroon4")
+
+plot_grid(plot15, plot16, ncol = 1)
+```
+## Missing Value Treatment
+```{r }
+missing_index = which(is.na(combined$Item_Weight))
+for(i in missing_index){
+  
+  item = combined$Item_Identifier[i]
+  combined$Item_Weight[i] = mean(combined$Item_Weight[combined$Item_Identifier == item], na.rm = T)
+  
+}
+
+# replacing 0 in Item_Visibility with mean
+zero_index = which(combined$Item_Visibility == 0)
+for(i in zero_index){
+  
+  item = combined$Item_Identifier[i]
+  combined$Item_Visibility[i] = mean(combined$Item_Visibility[combined$Item_Identifier == item], na.rm = T)
+  
+}
+
+```
+###Feature Engineering
+##################################################################
+# create a new feature 'Item_Type_new'
+```{r }
+# create a new feature 'Item_Type_new' 
+perishable = c("Breads", "Breakfast", "Dairy", "Fruits and Vegetables", "Meat", "Seafood")
+non_perishable = c("Baking Goods", "Canned", "Frozen Foods", "Hard Drinks", "Health and Hygiene",
+                   "Household", "Soft Drinks")
+
+combined[,Item_Type_new := ifelse(Item_Type %in% perishable, "perishable",
+                               ifelse(Item_Type %in% non_perishable, "non_perishable", "not_sure"))]
+
+
+combined[,Item_category := substr(combined$Item_Identifier, 1, 2)]
+
+combined$Item_Fat_Content[combined$Item_category == "NC"] = "Non-Edible"
+```
+# years of operation of outlets
+```{r }
+combined[,Outlet_Years := 2013 - Outlet_Establishment_Year]
+combined$Outlet_Establishment_Year = as.factor(combined$Outlet_Establishment_Year)
+
+```
+# Price per unit weight
+```{r }
+# Price per unit weight
+combined[,price_per_unit_wt := Item_MRP/Item_Weight]
+ggplot(train) + geom_point(aes(Item_MRP, Item_Outlet_Sales), colour = "maroon4", alpha = 0.3)
+
+```
+##creating new independent variable - Item_MRP_clusters
+```{r }
+# creating new independent variable - Item_MRP_clusters
+Item_MRP_clusters = kmeans(combined$Item_MRP, centers = 4)
+table(Item_MRP_clusters$cluster) 
+
+combined$Item_MRP_clusters = as.factor(Item_MRP_clusters$cluster)
+```
+##Label Encoding
+```{r }
+# Label Encoding
+
+combined[,Outlet_Size_num := ifelse(Outlet_Size == "Small", 0,
+                                 ifelse(Outlet_Size == "Medium", 1, 2))]
+
+combined[,Outlet_Location_Type_num := ifelse(Outlet_Location_Type == "Tier 3", 0,
+                                          ifelse(Outlet_Location_Type == "Tier 2", 1, 2))]
+
+# removing categorical variables after label encoding
+combined[, c("Outlet_Size", "Outlet_Location_Type") := NULL]
+
+```
+## Recalibrating data after removing categorical variables 
+```{r }
+lastencode = dummyVars("~.", data = combined[,-c("Item_Identifier", "Outlet_Establishment_Year", "Item_Type")], fullRank = T)
+lastencode_df = data.table(predict(lastencode, combined[,-c("Item_Identifier", "Outlet_Establishment_Year", "Item_Type")]))
+
+combined = cbind(combined[,"Item_Identifier"], lastencode_df)
+head(combined)
+```
+## Handling data skewness
+```{r }
+library(e1071) 
+skewness(combined$Item_Visibility) 
+skewness(combined$price_per_unit_wt)
+
+combined[,Item_Visibility := log(Item_Visibility + 1)] # log + 1 to avoid division by zero
+combined[,price_per_unit_wt := log(price_per_unit_wt + 1)]
+
+```
+## Scaling and Centering data
+```{r }
+num_vars = which(sapply(combined, is.numeric)) # index of numeric features
+num_vars_names = names(num_vars)
+
+combined_numeric = combined[,setdiff(num_vars_names, "Item_Outlet_Sales"), with = F]
+
+?preProcess
+prep_num = preProcess(combined_numeric, method=c("center", "scale"))
+combined_numeric_norm = predict(prep_num, combined_numeric)
+
+combined[,setdiff(num_vars_names, "Item_Outlet_Sales") := NULL] # removing numeric independent variables
+combined = cbind(combined, combined_numeric_norm)
+dim(combined)
+head(combined)
+
+```
+## splitting data back to train and test
+#######################################################################
+```{r }
+train2 = combined[1:nrow(train)]
+test2 = combined[(nrow(train) + 1):nrow(combined)]
+test2[,Item_Outlet_Sales := NULL] # removing Item_Outlet_Sales as it contains only NA for test dataset
+dim(train2)
+dim(test2)
+head(train2)
+head(test2)
+```
+## Correlation Plot
+```{r }
+## Correlation Plot
+cor_train = cor(train2[,-c("Item_Identifier")])
+
+corrplot(cor_train, method = "pie", type = "lower", tl.cex = 0.9)
+```
+## Linear Regression
+```{r }
+## Linear Regression
+
+linear_reg_mod = lm(Item_Outlet_Sales ~ ., data = train2[,-c("Item_Identifier")])
+summary(linear_reg_mod)
+
+linear_reg_mod2 = lm(Item_Outlet_Sales ~ Item_MRP+Outlet_IdentifierOUT013+Outlet_IdentifierOUT017+Outlet_IdentifierOUT018+Outlet_IdentifierOUT027+Outlet_IdentifierOUT035+Outlet_IdentifierOUT045+Outlet_IdentifierOUT046+Outlet_IdentifierOUT049, data = train2[,-c("Item_Identifier")])
+summary(linear_reg_mod2)
+
+## predicting on test set and writing a submission file
+submission$Item_Outlet_Sales = predict(linear_reg_mod2, test2[,-c("Item_Identifier")])
+write.csv(submission, "Linear_Reg_submit.csv", row.names = F)
+
+```
+## RandomForest Model
+```{r }
+## RandomForest Model
+set.seed(1237)
+my_control = trainControl(method="cv", number=5)
+
+tgrid = expand.grid(
+  .mtry = c(3:10),
+  .splitrule = "variance",
+  .min.node.size = c(10,15,20)
+)
+
+rf_mod = train(x = train2[, -c("Item_Identifier", "Item_Outlet_Sales")], 
+               y = train2$Item_Outlet_Sales,
+               method='ranger', 
+               trControl= my_control, 
+               tuneGrid = tgrid,
+               num.trees = 400,
+               importance = "permutation")
+
+
+```
+## plot displaying RMSE scores for different tuning parameters
+```{r }
+## plot displaying RMSE scores for different tuning parameters
+plot(rf_mod)
+
+## plot variable importance
+ plot(varImp(rf_mod))
+```
+## List of parameters for XGBoost modeling
+```{r }
+## List of parameters for XGBoost modeling
+param_list = list(
+  
+  objective = "reg:linear",
+  eta=0.01,
+  gamma = 1,
+  max_depth=6,
+  subsample=0.8,
+  colsample_bytree=0.5
+)
+
+```
+## converting train and test into xgb.DMatrix format
+```{r }
+## converting train and test into xgb.DMatrix format
+dtrain = xgb.DMatrix(data = as.matrix(train2[,-c("Item_Identifier", "Item_Outlet_Sales")]), label= train2$Item_Outlet_Sales)
+dtest = xgb.DMatrix(data = as.matrix(test2[,-c("Item_Identifier")]))
+dim(dtest)
+```
+## 5-fold cross-validation to find optimal value of nrounds
+```{r }
+
+## 5-fold cross-validation to find optimal value of nrounds
+set.seed(112)
+xgbcv = xgb.cv(params = param_list, 
+               data = dtrain, 
+               nrounds = 1000, 
+               nfold = 5, 
+               print_every_n = 10, 
+               early_stopping_rounds = 30, 
+               maximize = F)
+```
+## training XGBoost model at nrounds = 428
+```{r }
+## training XGBoost model at nrounds = 428
+xgb_model = xgb.train(data = dtrain, params = param_list, nrounds = 432)
+
+```
+## Variable Importance
+```{r }
+## Variable Importance
+var_imp = xgb.importance(feature_names = setdiff(names(train2), c("Item_Identifier", "Item_Outlet_Sales")), 
+                         model = xgb_model)
+
+xgb.plot.importance(var_imp)
+```
+
+
